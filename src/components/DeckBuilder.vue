@@ -1,21 +1,25 @@
 <template>
   <div>
+    <el-row class="title-row" justify="center">
+      <el-col :span="24">
+        <h1>APKG 文件生成器</h1>
+      </el-col>
+    </el-row>
     <el-row class="input-container">
       <el-col :span="24" class="input-col">
-        <span class="input-label">请输入词单URL</span>
-        <el-input v-model="url" placeholder="Enter Word List URL" class="input-box"></el-input>
+        <span class="input-label">请输入词单 URL</span>
+        <el-input v-model="url" placeholder="请输入词单 URL" class="input-box"></el-input>
       </el-col>
     </el-row>
     <el-row class="button-container" justify="center">
       <el-col :span="24">
-        <el-button type="primary" :loading="creatingApkg" @click="createApkg" :disabled="creatingApkg">Create
-          APKG</el-button>
+        <el-button type="primary" @click="createApkg" :disabled="processing">生成 Anki 牌组</el-button>
       </el-col>
     </el-row>
     <el-row class="log-row" justify="center">
       <el-col :span="24">
         <el-card class="log-card">
-          <div class="log-header">Activity Log</div>
+          <div class="log-header">活动日志</div>
           <el-scrollbar wrap class="log-text">
             <pre v-html="progressLogCleaned"></pre>
           </el-scrollbar>
@@ -35,17 +39,27 @@ import axios from 'axios';
 export default defineComponent({
   setup() {
     const url = ref('');
+    const apiHost = ref('');  // API主机地址作为响应式引用
     const creatingApkg = ref(false);
     const taskID = ref('');
     const progressLog = ref('');
     const downloadLink = ref('');
     const fileName = ref('');
+    const processing = ref(false); // 定义处理状态，防止重复提交
 
     const createApkg = () => {
+
+      if (processing.value) {
+        console.log("Processing is already true.");
+        return; // 如果正在处理，则直接返回，防止重复处理
+      }
+
       creatingApkg.value = true;
+      processing.value = true;
+      console.log("Processing started.");
       progressLog.value = "Creating APKG file...\n";
 
-      axios.get('http://127.0.0.1:8000/create-apkg/', {
+      axios.get(`${apiHost.value}/create-apkg/`, {
         params: { url: url.value }
       })
         .then(response => {
@@ -58,6 +72,7 @@ export default defineComponent({
           clearDownloadLink(); // 清除下载链接信息
           progressLog.value += `<span style="color: red;">Error: ${error.response?.data?.detail || "Request failed"}</span>\n`;
           creatingApkg.value = false;
+          processing.value = false;
         });
     };
 
@@ -65,7 +80,7 @@ export default defineComponent({
       let intervalId = null;
       if (!intervalId) {
         intervalId = window.setInterval(() => {
-          axios.get(`http://127.0.0.1:8000/progress-log/${taskID.value}`)
+          axios.get(`${apiHost.value}/progress-log/${taskID.value}`)
             .then(response => {
               clearProgressLog(); // 清空进度日志
               clearDownloadLink(); // 清除下载链接信息
@@ -73,14 +88,18 @@ export default defineComponent({
               progressLog.value += (response.data.progress_log || []).join('\n') + '\n';
               if (logString.includes("SUCCESS")) {
                 if (intervalId){ window.clearInterval(intervalId);intervalId=null }
+                progressLog.value += "File downloading...\n";
                 downloadApkg();
+                processing.value = false;
               } else if (logString.includes("Failed")) {
                 progressLog.value += "<span style='color: red;'>Failed: Task encountered an error</span>\n";
                 if (intervalId) { window.clearInterval(intervalId); intervalId = null }
+                processing.value = false;
               }
             })
             .catch(error => {
               progressLog.value += `<span style="color: red;">Error: ${error.response?.data?.detail || "Polling failed"}</span>\n`;
+              processing.value = false;
             });
         }, 1500);
 }
@@ -97,7 +116,7 @@ export default defineComponent({
     };
 
     const downloadApkg = () => {
-      axios.get(`http://127.0.0.1:8000/download-apkg/${taskID.value}`, { responseType: 'blob' })
+      axios.get(`${apiHost.value}/download-apkg/${taskID.value}`, { responseType: 'blob' })
         .then(response => {
           const url = window.URL.createObjectURL(new Blob([response.data]));
           const link = document.createElement('a');
@@ -124,7 +143,8 @@ export default defineComponent({
       downloadLink,
       fileName,
       createApkg,
-      progressLogCleaned
+      progressLogCleaned,
+      processing
     };
   },
 });
